@@ -1,0 +1,23 @@
+subprojects {
+    group 'us.alksol.cyborg'
+    version '0.0.1-SNAPSHOT'
+
+    apply plugin: 'java'
+    apply plugin: 'project-report'
+    apply plugin: 'eclipse'
+
+    sourceCompatibility = 1.8
+    buildscript {
+        repositories {
+            jcenter()
+            mavenCentral()
+        }
+        dependencies {
+            classpath 'com.github.ben-manes:gradle-versions-plugin:+'
+        }
+    }
+    repositories {
+        jcenter()
+        mavenCentral()
+    }
+}
