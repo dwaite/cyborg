@@ -4,9 +4,10 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+
 import us.alksol.cyborg.implant.CborDataInput;
 import us.alksol.cyborg.implant.CborException;
-import us.alksol.cyborg.implant.CborInput;
+import us.alksol.cyborg.implant.impl.CborInput;
 
 public class Main {
 	public static byte[] hexStringToByteArray(String s) {

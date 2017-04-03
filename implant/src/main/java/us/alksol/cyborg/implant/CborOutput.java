@@ -18,7 +18,7 @@ public interface CborOutput {
 	
 	CborOutput writeFloat(float v) throws IOException;
 	CborOutput writeDouble(double v) throws IOException;
-	CborOutput writeHalfFloat(int v) throws IOException;
+	CborOutput writeHalfFloat(short v) throws IOException;
 	
 	CborOutput writeTag(long tag) throws IOException;
 

@@ -1,130 +1,140 @@
 package us.alksol.cyborg.implant;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-// represents input from some CBOR document or stream as an advancing cursor proceeding depth-first through the 
-// CBOR data items.
-// 
-// Note that for all methods, an exception of type CborException (or sub-types) or ArithmeticException does not 
-// advance the cursor. However, other errors (such as IOException) not only may advance the cursor, but may leave
-// the underlying stream at an undefined position, yielding undefined behavior
-//
-// While whole number/integer values are represented as a single type, there is no "narrowing" operations permitted
-// by the API. For instance, attempting to use readInteger() (which returns an `int`) when the data item references
-// a value which only fits within a long will result in an Arithmetic error
-//
-// Likewise, no attempt is made at converting between floating point types. Attempt to read a float when the data
-// item is a double will fail, likewise vice-versa will fail.
+import us.alksol.cyborg.implant.DataType;
+
+/** The CborInput interface provides a low-level API for reading CBOR data from a document or stream as a sequence
+ *  of {@link DataType} instances and associated data, rather than as a hierarchical document model or data 
+ *  structure.
+ *  
+ *  This API operates with a forward-only cursor model, with `peekXXX` and any getter methods inspecting the
+ *  current cursor position and `readXXX` methods attempting to advance the cursor to the start of a future data
+ *  item. For all methods, an exception of type {@link CborException} or a runtime exception like 
+ *  {@link ArithmeticException} does not advance the cursor. So for example, a failing 
+ *  {@link CborInput#readFloat()} due to the data item being a double might be recovered by a
+ *  {@link CborInput#readDouble()}. However, other errors (such as {@link IOException}) not only may advance the 
+ *  cursor, but may leave the underlying stream at an undefined position and cause undefined behavior.
+ *  
+ * While whole number/integer values are represented as a single type, there is no lossy "narrowing" operations 
+ * permitted by the API. For instance, attempting to use {@link CborInput#readInteger()} (which returns a java 
+ * `int`) when the data item's value only fits within a java `long` will result in an exception.
+ * 
+ * Likewise, no attempt is made at converting between floating point types. Attempt to read a float when the data
+ * item is a double will fail, likewise vice-versa will fail.
+ */
 public interface CborInput {
-	// represents a logical CBOR input type, combining all integer formats and splitting the 7th major type into 
-	// logical constituents. Each type corresponds to a readXXX method on the CborInput interface to consume the
-	// data item, advancing the input cursor.
-	enum LogicalType {
-		// represents all whole number values, positive and negative, fitting within a signed 64-bit integer
-		INTEGER,
-		// represents a byte string, in one or more chunks
-		BYTES,
-		// represents a text string, in one or more chunks
-		TEXT,
-		// represents the start of an array, of possibly indeterminate length
-		ARRAY,
-		// represents the start of a map/associative array, of possibly indeterminate length
-		MAP,
-		// represents a semantic tag for the following item
-		TAG,
-		// represents a boolean true or false
-		BOOLEAN,
-		// represents the concept of a null or nil value
-		NULL,
-		// represents an undefined value
-		UNDEFINED,
-		// represents a simple value other than a boolean, NULL, and UNDEFINED
-		SIMPLE,
-		// represents a binary16 value
-		HALF_FLOAT,
-		// represents a binary32 value
-		FLOAT,
-		// represents a binary64 value
-		DOUBLE,
-		// represents the end of a indeterminate array or map. Indeterminate length byte and text strings 
-		// automatically consume any necessary BREAK
-		BREAK;
-		
-		public static LogicalType fromDataType(DataType type) {
-			switch (type.getMajorType()) {
-			case UNSIGNED_INT:
-			case NEGATIVE_INT:
-				return INTEGER;
-			case BYTE_STRING:
-				return BYTES;
-			case TEXT_STRING:
-				return TEXT;
-			case ARRAY:
-				return ARRAY;
-			case MAP:
-				return MAP;
-			case TAG:
-				return TAG;
-			case SIMPLE_FLOAT:
-				switch (type.getAdditionalInfo()) {
-				case IMMEDIATE:
-				case BYTE:
-				case INDETERMINATE:
-					if (type.equals(DataType.TRUE) || type.equals(DataType.FALSE)) {
-						return BOOLEAN;
-					}
-					if (type.equals(DataType.NULL)) {
-						return NULL;
-					}
-					if (type.equals(DataType.UNDEFINED)) {
-						return UNDEFINED;
-					}
-					if (type.equals(DataType.BREAK)) {
-						return BREAK;
-					}
-					return SIMPLE;
-				case SHORT:
-					return HALF_FLOAT;
-				case INT:
-					return FLOAT;
-				case LONG:
-					return DOUBLE;
-				}
-			}
-			throw new IllegalStateException();
+	/** peek {@link LogicalType} the cursor is currently pointing at */
+	default LogicalType peekType() throws IOException, CborException {
+		return peekDataType().getLogicalType();
+	}
+
+	/** peek the {@link DataType} the cursor is currently pointing at */
+	DataType peekDataType() throws IOException, CborException;
+
+	// if the logical type is an integer, read the value. Will throw Arithmetic exception rather than narrowing to
+	// the java type
+	int readInteger() throws IOException, CborException, ArithmeticException;
+	// if the logical type is an integer, read the value. Will throw Arithmetic exception rather than narrowing to
+	// the java type
+	long readLong() throws IOException, CborException;
+	
+	long readUnsignedLong() throws IOException, CborException;
+	long readNegativeLong() throws IOException, CborException;
+	BigInteger readBigInteger() throws IOException, CborException;
+	
+	// read binary data. The consumer will be called once for a byte string of defined length, or one time for each
+	// chunk in an indeterminate length byte string.
+	void readBytes(Consumer<byte[]> byteBlockConsumer) throws CborException, IOException;
+
+	// read binary data. Indeterminate length byte strings will be concatenated and returned as a single array
+	byte[] readBytes() throws IOException, CborException;
+
+	// read text data. The consumer will be called once for a text string of defined length, or one time for each
+	// chunk in an indeterminate length text string
+	String readText() throws IOException, CborException;
+
+	// read text data. Indeterminate length text strings will be concatenated and returned as a single String
+	void readText(Consumer<String> textBlockConsumer) throws CborException, IOException;
+
+	// read a IEEE binary32 aka Java <code>float</code> floating-point number. No narrowing or widening is done
+	// between other floating point formats, instead <code>ArithmeticException</code> will be thrown
+	float  readFloat() throws IOException, CborException, ArithmeticException;
+	// read a IEEE binary64 aka Java <code>double</code> floating-point number. No narrowing or widening is done
+	// between other floating point formats, instead <code>ArithmeticException</code> will be thrown
+	double readDouble() throws IOException, CborException, ArithmeticException;
+	// read a IEEE binary16 floating-point number as a binary value. As Java does not support binary16 numbers,
+	// this value is left within the bits of a 16-bit Java <code>short</code>.  No narrowing or widening is done
+	// between other floating point formats, instead <code>ArithmeticException</code> will be thrown
+	short readHalfFloat() throws IOException, CborException, ArithmeticException;
+
+	// read a semantic tag that will apply to the next data item in the CBOR stream. If the tag does not fit within
+	// a java integer <code>ArithmeticException</code> will be thrown
+	int readIntTag() throws IOException, CborException, ArithmeticException;
+
+	// read a semantic tag that will apply to the next data item in the CBOR stream. If the tag does not fit within
+	// a java integer <code>ArithmeticException</code> will be thrown
+	long readTag() throws IOException, CborException;
+
+	// read the count of array elements which are children of an array data item. Will throw a CborException if
+	// the array is not of a definite length
+	int readArrayCount() throws IOException, CborException;
+
+	// read the count of array elements which are children of an array data item. Will return an empty Optional to
+	// represent an indefinite length array
+	Optional<Integer> readPossiblyIndefiniteArrayCount() throws IOException, CborException;
+	
+	// read the count of alternating key/value elements pairs which are children of an map data item. This will be
+	// half of the actual element count to accomodate the presence of both keys and values. Will throw a
+	// CborException if the map is not of a definite length
+	int readMapPairCount() throws IOException, CborException;
+	
+	// read the count of alternating key/value elements pairs which are children of an map data item. This will be
+	// half of the actual element count to accomodate the presence of both keys and values. Will return an empty
+	// Optional to represent an indefinite length map
+	Optional<Integer> readPossiblyIndefiniteMapPairCount() throws IOException, CborException;
+	
+	// read a boolean value, returning true or false. Will not attempt to interpret values such as zero or `null`
+	// as a boolean value, instead throwing a CborException
+	boolean readBoolean() throws IOException, CborException;
+	
+	// read a null value to advance the cursor
+	void readNull() throws IOException, CborException;
+	
+	// read an undefined value to advance the cursor
+	void readUndefined() throws IOException, CborException;
+	
+	// read a simple value (including predefined types like booleans, null, and undefined) as a simple value.
+	int readSimpleValue() throws IOException, CborException;
+	
+	// read a break terminating a indefinite length array or map. Indefinite length binary and text strings have any
+	// terminating break consumed by their read methods.
+	void readBreak() throws IOException, CborException;
+
+	// read the data item as a binary CBOR block. This means:
+	// - consuming all descendent data items in an array or map
+	// - consuming all blocks in a indefinite-length binary or text string
+	// - consuming both a tag and the tagged item
+	void readCBOR(CborOutput output) throws IOException, CborException;
+	
+	default byte[] readCBOR() throws IOException, CborException {
+		try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+			DataOutputStream dos = new DataOutputStream(baos)) {
+			CborDataOutput output = new CborDataOutput(dos);
+			readCBOR(output);
+			dos.close();
+			return baos.toByteArray();
 		}
 	}
 	
-	boolean readBoolean() throws IOException, CborException;
-	void readNull() throws IOException, CborException;
-	void readUndefined() throws IOException, CborException;
-	int readSimpleValue() throws IOException, CborException;
-	
-	int readInteger() throws IOException, CborException;
-	long readLong() throws IOException, CborException;
-
-	byte[] readBytes() throws IOException, CborException;
-	String readText() throws IOException, CborException;
-	void readText(Consumer<String> textBlockConsumer) throws CborException, IOException;
-	void readBytes(Consumer<byte[]> byteBlockConsumer) throws CborException, IOException;
-
-	float  readFloat() throws IOException, CborException;
-	double readDouble() throws IOException, CborException;
-	short readHalfFloat() throws IOException, CborException;
-
-	int readTag() throws IOException, CborException;
-	long readLongTag() throws IOException, CborException;
-
-	int readArrayCount() throws IOException, CborException;
-	Optional<Integer> readPossiblyIndefiniteArrayCount() throws IOException, CborException;
-	
-	int readMapPairCount() throws IOException, CborException;
-	Optional<Integer> readPossiblyIndefiniteMapPairCount() throws IOException, CborException;
-	
-	void readBreak() throws IOException, CborException;
-
-	LogicalType peekLogicalType() throws IOException, CborException;
-	DataType peekDataType() throws IOException, CborException;
+	// return true if the type is an array, map, binary string or text string of indeterminate length. Return false
+	// for other types, including the <code>break</code> terminator.
+	default boolean isIndeterminate() throws IOException, CborException {
+		return peekDataType().isIndeterminate();
+	}
 }

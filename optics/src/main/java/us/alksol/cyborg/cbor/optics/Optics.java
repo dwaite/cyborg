@@ -8,7 +8,9 @@ import java.util.Optional;
 import us.alksol.cyborg.implant.CborException;
 import us.alksol.cyborg.implant.CborInput;
 import us.alksol.cyborg.implant.DataType;
-import us.alksol.cyborg.implant.DataType.AdditionalInfoFormat;
+import us.alksol.cyborg.implant.DataType.InfoFormat;
+import us.alksol.cyborg.implant.LogicalType;
+import us.alksol.cyborg.implant.impl.CborInput;
 
 public class Optics {
 	CborInput input;
@@ -27,7 +29,7 @@ public class Optics {
 	    return builder.toString();
 	}
 	void process() throws IOException, CborException {
-		CborInput.LogicalType type = input.peekLogicalType();
+		LogicalType type = input.peekType();
 		switch (type) {
 		case INTEGER:
 			output.write(Long.toString(input.readLong()));
@@ -55,7 +57,7 @@ public class Optics {
 			}
 			break;
 		case TAG:
-			int tag = input.readTag();
+			long tag = input.readTag();
 			output.write(Long.toString(tag) + "(");
 			process();
 			output.write(")");
@@ -118,7 +120,7 @@ public class Optics {
 		return builder.toString();
 	}
 	private void writeTextString() throws IOException, CborException {
-		if (input.peekDataType().getAdditionalInfo() == AdditionalInfoFormat.INDETERMINATE) {
+		if (input.isIndeterminate()) {
 			StringWriter writer = new StringWriter();
 			output.write("(_ ");
 			input.readText((chunk) -> {
@@ -136,7 +138,7 @@ public class Optics {
 	}
 
 	private void writeByteString() throws IOException, CborException {
-		if (input.peekDataType().getAdditionalInfo() == AdditionalInfoFormat.INDETERMINATE) {
+		if (input.isIndeterminate()) {
 			StringWriter writer = new StringWriter();
 			output.write("(_ ");
 			input.readBytes((chunk) -> {
@@ -170,8 +172,8 @@ public class Optics {
 		output.write("[_ ");
 		boolean first = true;
 		while (true) {
-			DataType type = input.peekDataType();
-			if(type.equals(DataType.BREAK)) {
+			LogicalType type = input.peekType();
+			if(type == LogicalType.BREAK) {
 				input.readBreak();
 				output.write("]");
 				return;
@@ -204,8 +206,8 @@ public class Optics {
 		output.write("{_ ");
 		boolean first = true;
 		while (true) {
-			DataType type = input.peekDataType();
-			if(type.equals(DataType.BREAK)) {
+			LogicalType type = input.peekType();
+			if(type == LogicalType.BREAK) {
 				input.readBreak();
 				output.write("}");
 				return;

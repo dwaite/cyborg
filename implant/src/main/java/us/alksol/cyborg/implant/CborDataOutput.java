@@ -67,7 +67,7 @@ public class CborDataOutput implements CborOutput {
 
 	@Override
 	public CborDataOutput writeBytes(Iterable<byte[]> s) throws IOException {
-		DataType.canonicalFromMajorAndLongValue(Major.BYTE_STRING, DataType.INDETERMINATE).write(dataOutput);
+		DataType.indeterminate(Major.BYTE_STRING).write(dataOutput);
 		for (byte chunk[] : s) {
 			writeBytes(chunk);
 		}
@@ -77,7 +77,7 @@ public class CborDataOutput implements CborOutput {
 
 	@Override
 	public CborDataOutput writeTextStream(Iterable<String> r) throws IOException {
-		DataType.canonicalFromMajorAndLongValue(Major.TEXT_STRING, DataType.INDETERMINATE).write(dataOutput);
+		DataType.indeterminate(Major.TEXT_STRING).write(dataOutput);
 		for (String chunk : r) {
 			writeText(chunk);
 		}
@@ -98,7 +98,7 @@ public class CborDataOutput implements CborOutput {
 	}
 
 	@Override
-	public CborDataOutput writeHalfFloat(int v) throws IOException {
+	public CborDataOutput writeHalfFloat(short v) throws IOException {
 		DataType.halfFloatValue(v).write(dataOutput);
 		return this;
 	}
@@ -117,7 +117,7 @@ public class CborDataOutput implements CborOutput {
 
 	@Override
 	public CborDataOutput writeStartIndefiniteArray() throws IOException {
-		DataType.canonicalFromMajorAndLongValue(Major.ARRAY, DataType.INDETERMINATE).write(dataOutput);
+		DataType.indeterminate(Major.ARRAY).write(dataOutput);
 		return this;
 	}
 
@@ -129,7 +129,7 @@ public class CborDataOutput implements CborOutput {
 
 	@Override
 	public CborDataOutput writeStartIndefiniteMap() throws IOException {
-		DataType.canonicalFromMajorAndLongValue(Major.MAP, DataType.INDETERMINATE).write(dataOutput);
+		DataType.indeterminate(Major.MAP).write(dataOutput);
 		return this;
 	}
 

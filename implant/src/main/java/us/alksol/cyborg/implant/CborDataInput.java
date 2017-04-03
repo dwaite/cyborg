@@ -4,11 +4,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.math.BigInteger;
 import java.nio.charset.Charset;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-import us.alksol.cyborg.implant.DataType.AdditionalInfoFormat;
+import us.alksol.cyborg.implant.DataType.InfoFormat;
 import us.alksol.cyborg.implant.DataType.Major;
 
 public class CborDataInput implements CborInput {
@@ -30,8 +31,8 @@ public class CborDataInput implements CborInput {
 			header = null;
 			return false;
 		}
-		if (header.getMajorType() != Major.SIMPLE_FLOAT) {
-			throw new CborIncorrectMajorTypeException(header, Major.SIMPLE_FLOAT);
+		if (header.getMajorType() != Major.ETC) {
+			throw new CborIncorrectMajorTypeException(header, Major.ETC);
 		}
 		throw new CborException("Expected boolean type, got " + header);
 	}
@@ -51,8 +52,8 @@ public class CborDataInput implements CborInput {
 			header = null;
 			return;
 		}
-		if (header.getMajorType() != Major.SIMPLE_FLOAT) {
-			throw new CborIncorrectMajorTypeException(header, Major.SIMPLE_FLOAT);
+		if (header.getMajorType() != Major.ETC) {
+			throw new CborIncorrectMajorTypeException(header, Major.ETC);
 		}
 		throw new CborException("Expected null type, got " + header);
 	}
@@ -64,8 +65,8 @@ public class CborDataInput implements CborInput {
 			header = null;
 			return;
 		}
-		if (header.getMajorType() != Major.SIMPLE_FLOAT) {
-			throw new CborIncorrectMajorTypeException(header, Major.SIMPLE_FLOAT);
+		if (header.getMajorType() != Major.ETC) {
+			throw new CborIncorrectMajorTypeException(header, Major.ETC);
 		}
 		throw new CborException("Expected undefined type, got " + header);
 	}
@@ -73,8 +74,8 @@ public class CborDataInput implements CborInput {
 	@Override
 	public int readSimpleValue() throws IOException, CborException {
 		peekDataType();
-		if (header.getMajorType() != Major.SIMPLE_FLOAT) {
-			throw new CborIncorrectMajorTypeException(header, Major.SIMPLE_FLOAT);
+		if (header.getMajorType() != Major.ETC) {
+			throw new CborIncorrectMajorTypeException(header, Major.ETC);
 		}
 		switch (header.getAdditionalInfo()) {
 		case IMMEDIATE:
@@ -129,12 +130,11 @@ public class CborDataInput implements CborInput {
 	}
 	public void readText(Consumer<String> textBlockConsumer) throws CborException, IOException {
 		peekDataType();
-		long length = header.getValue();
 		if (header.getMajorType() != Major.TEXT_STRING) {
 			throw new CborIncorrectMajorTypeException(header, Major.TEXT_STRING);
 		}
 		Charset utf8 = Charset.forName("UTF-8");
-		if (length == DataType.INDETERMINATE) {
+		if (peekDataType().isIndeterminate()) {
 			header = null;
 			byte[] block;
 			while ((block = readBlock(Major.TEXT_STRING)) != null) {
@@ -150,11 +150,10 @@ public class CborDataInput implements CborInput {
 
 	public void readBytes(Consumer<byte[]> byteBlockConsumer) throws CborException, IOException {
 		peekDataType();
-		long length = header.getValue();
 		if (header.getMajorType() != Major.BYTE_STRING) {
 			throw new CborIncorrectMajorTypeException(header, Major.BYTE_STRING);
 		}
-		if (length == DataType.INDETERMINATE) {
+		if (peekDataType().isIndeterminate()) {
 			header = null;
 			byte[] block;
 			while ((block = readBlock(Major.BYTE_STRING)) != null) {
@@ -198,10 +197,10 @@ public class CborDataInput implements CborInput {
 	public float readFloat() throws IOException, CborException {
 		peekDataType();
 		long value = header.getValue();
-		if (header.getMajorType() != Major.SIMPLE_FLOAT) {
-			throw new CborIncorrectMajorTypeException(header, Major.SIMPLE_FLOAT);
+		if (header.getMajorType() != Major.ETC) {
+			throw new CborIncorrectMajorTypeException(header, Major.ETC);
 		}
-		if (header.getAdditionalInfo() != AdditionalInfoFormat.INT) {
+		if (header.getAdditionalInfo() != InfoFormat.INT) {
 			throw new CborException("data type " + header + " does not represent a binary32 A.K.A. float");
 		}
 		float floatValue = Float.intBitsToFloat((int)value);
@@ -213,10 +212,10 @@ public class CborDataInput implements CborInput {
 	public double readDouble() throws IOException, CborException {
 		peekDataType();
 		long value = header.getValue();
-		if (header.getMajorType() != Major.SIMPLE_FLOAT) {
-			throw new CborIncorrectMajorTypeException(header, Major.SIMPLE_FLOAT);
+		if (header.getMajorType() != Major.ETC) {
+			throw new CborIncorrectMajorTypeException(header, Major.ETC);
 		}
-		if (header.getAdditionalInfo() != AdditionalInfoFormat.LONG) {
+		if (header.getAdditionalInfo() != InfoFormat.LONG) {
 			throw new CborException("data type " + header + " does not represent a binary64 A.K.A. double");
 		}
 		double doubleValue = Double.longBitsToDouble(value);
@@ -228,10 +227,10 @@ public class CborDataInput implements CborInput {
 	public short readHalfFloat() throws IOException, CborException {
 		peekDataType();
 		long value = header.getValue();
-		if (header.getMajorType() != Major.SIMPLE_FLOAT) {
-			throw new CborIncorrectMajorTypeException(header, Major.SIMPLE_FLOAT);
+		if (header.getMajorType() != Major.ETC) {
+			throw new CborIncorrectMajorTypeException(header, Major.ETC);
 		}
-		if (header.getAdditionalInfo() != AdditionalInfoFormat.SHORT) {
+		if (header.getAdditionalInfo() != InfoFormat.SHORT) {
 			throw new CborException("data type " + header + " does not represent a binary16 half float");
 		}
 		header = null;
@@ -239,7 +238,7 @@ public class CborDataInput implements CborInput {
 	}
 
 	@Override
-	public int readTag() throws IOException, CborException {
+	public int readIntTag() throws IOException, CborException {
 		peekDataType();
 		long value = header.getValue();
 		if (header.getMajorType() != Major.TAG) {
@@ -252,7 +251,7 @@ public class CborDataInput implements CborInput {
 		return (int) value;
 	}
 	@Override
-	public long readLongTag() throws IOException, CborException {
+	public long readTag() throws IOException, CborException {
 		peekDataType();
 		long value = header.getValue();
 		if (header.getMajorType() != Major.TAG) {
@@ -269,7 +268,7 @@ public class CborDataInput implements CborInput {
 		if (header.getMajorType() != Major.ARRAY) {
 			throw new CborIncorrectMajorTypeException(header, Major.ARRAY);
 		}
-		if (value ==  DataType.INDETERMINATE) {
+		if (peekDataType().isIndeterminate()) {
 			throw new CborIndeterminateLengthException(header);
 		}
 		if (value > Integer.MAX_VALUE) {
@@ -286,7 +285,7 @@ public class CborDataInput implements CborInput {
 		if (header.getMajorType() != Major.ARRAY) {
 			throw new CborIncorrectMajorTypeException(header, Major.ARRAY);
 		}
-		if (value == DataType.INDETERMINATE) {
+		if (peekDataType().isIndeterminate()) {
 			header = null;
 			return Optional.empty();
 		}
@@ -304,7 +303,7 @@ public class CborDataInput implements CborInput {
 		if (header.getMajorType() != Major.MAP) {
 			throw new CborIncorrectMajorTypeException(header, Major.MAP);
 		}
-		if (value == DataType.INDETERMINATE) {
+		if (peekDataType().isIndeterminate()) {
 			throw new CborIndeterminateLengthException(header);
 		}
 		if (value > Integer.MAX_VALUE) {
@@ -321,7 +320,7 @@ public class CborDataInput implements CborInput {
 		if (header.getMajorType() != Major.MAP) {
 			throw new CborIncorrectMajorTypeException(header, Major.MAP);
 		}
-		if (value == DataType.INDETERMINATE) {
+		if (peekDataType().isIndeterminate()) {
 			header = null;
 			return Optional.empty();
 		}
@@ -342,7 +341,19 @@ public class CborDataInput implements CborInput {
 		throw new CborException("Expected break, got " + header);
 	}
 	@Override
-	public LogicalType peekLogicalType() throws IOException, CborException {
-		return LogicalType.fromDataType(peekDataType());
+	public long readUnsignedLong() throws IOException, CborException {
+		throw new UnsupportedOperationException();
+	}
+	@Override
+	public long readNegativeLong() throws IOException, CborException {
+		throw new UnsupportedOperationException();
+	}
+	@Override
+	public BigInteger readBigInteger() throws IOException, CborException {
+		throw new UnsupportedOperationException();
+	}
+	@Override
+	public void readCBOR(CborOutput output) throws IOException, CborException {
+		throw new UnsupportedOperationException();
 	}
 }
