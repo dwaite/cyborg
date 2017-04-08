@@ -7,10 +7,7 @@ import java.util.Optional;
 
 import us.alksol.cyborg.implant.CborException;
 import us.alksol.cyborg.implant.CborInput;
-import us.alksol.cyborg.implant.DataType;
-import us.alksol.cyborg.implant.DataType.InfoFormat;
 import us.alksol.cyborg.implant.LogicalType;
-import us.alksol.cyborg.implant.impl.CborInput;
 
 public class Optics {
 	CborInput input;
@@ -220,5 +217,5 @@ public class Optics {
 			output.write(": ");
 			process();
 		}
-	}
+	}	
 }

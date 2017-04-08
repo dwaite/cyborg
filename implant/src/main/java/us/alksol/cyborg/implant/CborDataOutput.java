@@ -137,5 +137,23 @@ public class CborDataOutput implements CborOutput {
 	public CborDataOutput writeBreak() throws IOException {
 		DataType.BREAK.write(dataOutput);
 		return this;
+	}
+
+	@Override
+	public CborOutput writeUnsignedLong(long value) throws IOException {
+		DataType.unsignedLongValue(value).write(dataOutput);
+		return this;
+	}
+
+	@Override
+	public CborOutput writeNegativeUnsignedLong(long value) throws IOException {
+		DataType.negativeUnsignedLongValue(value).write(dataOutput);
+		return this;
+	}
+
+	@Override
+	public CborOutput writeDataType(DataType type) throws IOException, CborException {
+		type.write(dataOutput);
+		return this;
 	}	
 }
