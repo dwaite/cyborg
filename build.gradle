@@ -5,7 +5,8 @@ subprojects {
     apply plugin: 'java'
     apply plugin: 'project-report'
     apply plugin: 'eclipse'
-
+    apply plugin: 'maven-publish'
+    
     sourceCompatibility = 1.8
     buildscript {
         repositories {
@@ -16,6 +17,13 @@ subprojects {
             classpath 'com.github.ben-manes:gradle-versions-plugin:+'
         }
     }
+    publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}
     repositories {
         jcenter()
         mavenCentral()

@@ -10,6 +10,8 @@ public interface CborOutput {
 	
 	CborOutput writeInteger(int v) throws IOException;
 	CborOutput writeLong(long v) throws IOException;
+	CborOutput writeUnsignedLong(long value) throws IOException;
+	CborOutput writeNegativeUnsignedLong(long value) throws IOException;
 
 	CborOutput writeBytes(byte[] b) throws IOException;
 	CborOutput writeText(String s) throws IOException;
@@ -29,4 +31,5 @@ public interface CborOutput {
 	CborOutput writeStartIndefiniteMap() throws IOException;
 	
 	CborOutput writeBreak() throws IOException;
+	CborOutput writeDataType(DataType type) throws IOException, CborException;
 }

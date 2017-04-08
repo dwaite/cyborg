@@ -7,7 +7,7 @@ import java.io.OutputStreamWriter;
 
 import us.alksol.cyborg.implant.CborDataInput;
 import us.alksol.cyborg.implant.CborException;
-import us.alksol.cyborg.implant.impl.CborInput;
+import us.alksol.cyborg.implant.CborInput;
 
 public class Main {
 	public static byte[] hexStringToByteArray(String s) {
