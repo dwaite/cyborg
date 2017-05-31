@@ -1,11 +1,10 @@
 package us.alksol.cyborg.electrode;
 
-import java.io.Flushable;
 import java.io.IOException;
 
 import us.alksol.bytestring.Bytes;
 
-public interface CborGenerator extends AutoCloseable, Flushable {
+public interface CborGenerator {
 
 	CborGenerator next(CborEvent event) throws IOException;
 	

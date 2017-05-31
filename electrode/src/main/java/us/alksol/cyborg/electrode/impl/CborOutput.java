@@ -2,28 +2,22 @@ package us.alksol.cyborg.electrode.impl;
 
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Iterator;
+import java.util.Objects;
 
 import us.alksol.cyborg.electrode.CborEvent;
-import us.alksol.cyborg.electrode.DataEvent;
+import us.alksol.cyborg.electrode.CborGenerator;
 
-public class CborOutput implements Runnable {
-	private Iterator<CborEvent> source;
+public class CborOutput implements CborGenerator {
 	private DataOutput target;
 	
-	public CborOutput(Iterator<CborEvent> source, DataOutput target) {
-		this.source = source;
+	public CborOutput(DataOutput target) {
+		Objects.requireNonNull(target);
 		this.target = target;
 	}
-	
-	public void run() {
-		source.forEachRemaining((event) -> {
-			try {
-				DataEvent.write(event, target);
-			}
-			catch (IOException e) {
-				throw new RuntimeException(e);
-			}
-		});
-	}
+
+	@Override
+	public CborGenerator next(CborEvent event) throws IOException {
+		event.write(target);
+		return this;
+	}	
 }

@@ -2,26 +2,28 @@ package us.alksol.cyborg.electrode;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.Serializable;
-import java.math.BigInteger;
 import java.util.Objects;
 
 import us.alksol.bytestring.Bytes;
-import us.alksol.cyborg.electrode.impl.CborOptionalValueEventWrapper;
+import us.alksol.cyborg.electrode.InitialByte.InfoFormat;
+import us.alksol.cyborg.electrode.InitialByte.LogicalType;
+import us.alksol.cyborg.electrode.InitialByte.Major;
 
+/** This implementation of {@link CborEvent} is meant for general use, most particularly in building an output 
+ *  CBOR document. It does not attempt to capture any information on the event source, but as a consequence has many
+ *  static factory methods to easily create new events.
+ *  
+ *  Instances of this type are immutable, and several common values are internally managed as singleton instances.
+ */
 public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serializable {
 	private static final long serialVersionUID = 1L;	
-	
-	// constant big integer to convert values above Long#MAX_VALUE to a Java-compatible numeric
-	private static final BigInteger TWO_TO_THE_64TH = 
-			new BigInteger(1, new byte[] {0x1, 0, 0, 0, 0, 0, 0, 0, 0});
 
 	private final InitialByte type;
-	private final long value;
+	private final long info;
 	private final Bytes data;
 	
 	/** singletons for single byte complete data events */
@@ -61,15 +63,6 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 	/** Data item representing a known-zero-count/empty map */
 	private static final DataEvent EMPTY_MAP;
 	
-	/** Data item representing infinity as a half float */
-	private static final DataEvent INF;
-
-	/** Data item representing negative infinity as a half float */
-	private static final DataEvent NEG_INF;
-
-	/** Data item representing canonical NaN as a half float */
-	private static final DataEvent NAN;
-
 	static {
 		IMMEDIATES = new DataEvent[256];
 		for (Major major: Major.values()) {
@@ -77,7 +70,7 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 			if (major.isPossiblyFollowedByBinaryData()) {
 				int ib = hb;
 				IMMEDIATES[ib] = new DataEvent(InitialByte.initialByte(ib).get(), 0, Bytes.empty());
-				ib = ib | AdditionalInfoFormat.INDEFINITE.getLowOrderBits();
+				ib = ib | InfoFormat.INDEFINITE.getLowOrderBits();
 				IMMEDIATES[ib] = new DataEvent(InitialByte.initialByte(ib).get(), 0, null);
 			}
 			else {
@@ -85,8 +78,8 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 					int ib = hb | i; 
 					IMMEDIATES[ib] = new DataEvent(InitialByte.initialByte(ib).get(), i, null);
 				}
-				if (major.isIndefiniteAllowed()) {
-					int ib = hb | AdditionalInfoFormat.INDEFINITE.getLowOrderBits(); 
+				if (major.isIndefiniteAdditionalInfoAllowed()) {
+					int ib = hb | InfoFormat.INDEFINITE.getLowOrderBits(); 
 					IMMEDIATES[ib] = new DataEvent(InitialByte.initialByte(ib).get(), 0, null);
 				}
 			}
@@ -103,62 +96,69 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		EMPTY_TEXT  = IMMEDIATES[0x60];
 		EMPTY_ARRAY = IMMEDIATES[0x80];
 		EMPTY_MAP	= IMMEDIATES[0xa0];
-		
-		// common floating-point values
-		INF     = new DataEvent(InitialByte.fromMajorAndFormat(Major.ETC, AdditionalInfoFormat.SHORT), 0x7c00, null);
-		NEG_INF = new DataEvent(InitialByte.fromMajorAndFormat(Major.ETC, AdditionalInfoFormat.SHORT), 0xfc00, null);
-		NAN     = new DataEvent(InitialByte.fromMajorAndFormat(Major.ETC, AdditionalInfoFormat.SHORT), 0x7e00, null);		
-
 	}
 	
 	protected DataEvent(InitialByte type, long value, Bytes data) {
 		Objects.requireNonNull(type, "type");
-		if (!type.isIndefinite() && (type.getMajorType() == Major.BYTE_STRING || type.getMajorType() == Major.TEXT_STRING)) {
+		LogicalType logicalType = type.getLogicalType();
+		if (logicalType == LogicalType.BINARY_CHUNK || logicalType == LogicalType.TEXT_CHUNK) {
 			Objects.requireNonNull(data, "data");
 		} else {
-			if (data != null) {
+			if (data != null && !data.isEmpty()) {
 				throw new IllegalArgumentException("data");
 			}
 		}
 		this.type = type;
 		this.data = data;
-		this.value = value;
+		this.info = value;
 	}
 
+	/** A data event of the integer value zero */
 	public static DataEvent zero() {
 		return ZERO;
 	}
+
+	/** A data event of the integer value one */
 	public static DataEvent one() {
 		return ONE;
 	}
+
+	/** A data event of the boolean value `true` or `false` */
 	public static DataEvent ofBoolean(boolean v) {
 		return v ? TRUE : FALSE;
 	}
 	
+	/** A data event of the simple value `null` */
 	public static DataEvent ofNull() {
 		return NULL;
 	}
 	
+	/** A data event of the simple value `undefined` */
 	public static DataEvent ofUndefined() {
 		return UNDEFINED;
 	}
 	
+	/** A data event of the `break` signal to end indefinite-length containers */
 	public static DataEvent ofBreak() {
 		return BREAK;
 	}
 	
+	/** A data event of a byte chunk containing no data. */
 	public static DataEvent emptyBytes() {
 		return EMPTY_BYTES;
 	}
 	
+	/** A data event of an empty string */
 	public static DataEvent emptyText() {
 		return EMPTY_TEXT;
 	}
 	
+	/** A data event of an empty array */
 	public static DataEvent emptyArray() {
 		return EMPTY_ARRAY;
 	}
 	
+	/** A data event of an empty map */
 	public static DataEvent emptyMap() {
 		return EMPTY_MAP;
 	}
@@ -182,11 +182,14 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		if (value >= 24 && value < 32) {
 			throw new IllegalArgumentException("values between 24 and 32 are not legal");
 		}
-		InitialByte type = InitialByte.fromMajorAndFormat(Major.ETC, AdditionalInfoFormat.BYTE);
+		InitialByte type = InitialByte.fromMajorAndFormat(Major.ETC, InfoFormat.BYTE);
 		return new DataEvent(type, value, null);
 	}
 	
-	static DataEvent ofUnsignedLong(long value) {
+	/** Constructs a data item from a long integer value from 0 to 2^^64-1. This value is supplied encoded within a
+	 * signed java long primitive.
+	 */
+	public static DataEvent ofUnsignedLong(long value) {
 		InitialByte ib = InitialByte.forCanonicalLongValue(Major.INTEGER, value);
 		DataEvent event = IMMEDIATES[ib.getRepresentation()];
 		if (event != null) {
@@ -195,7 +198,11 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		return new DataEvent(ib, value, null);
 	}
 	
-	static CborEvent ofNegativeUnsignedLong(long value) {
+	/** Constructs a data item from a negative long integer value from -1 to -2^^64. This value is supplied encoded 
+	 * within a signed java long primitive. The value is a one's complement, e.g. -value -1. 0 thus represents -1, 10
+	 * represents -11, and so on.
+	 */
+	public static CborEvent ofNegativeUnsignedLong(long value) {
 		InitialByte ib = InitialByte.forCanonicalLongValue(Major.NEGATIVE_INTEGER, value);
 		DataEvent event = IMMEDIATES[ib.getRepresentation()];
 		if (event != null) {
@@ -204,23 +211,28 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		return new DataEvent(ib, value, null);
 	}
 
+	/** Construct a data item of a fixed length of bytes */
 	public static DataEvent ofBytes(byte[] b) {
 		return ofFixedBinary(new Bytes(b), false);
 	}
 
+	/** Construct a data item of a fixed length of bytes */
 	public static DataEvent ofBytes(Bytes b) {
 		return ofFixedBinary(b, false);
 	}
 	
+	/** Construct a data item of a text string. */
 	public static DataEvent ofText(String str) {
 		return ofFixedBinary(Bytes.ofUTF8(str), true);
 	}
 
+	/** Construct a data item of a text string based on supplied binary data of UTF-8 encoding. No validation is done
+	 * to ensure data corresponds to correct UTF-8 encoding. */
 	public static DataEvent ofText(Bytes utf8bytes) {
 		return ofFixedBinary(utf8bytes, true);
 	}
 
-	public static DataEvent ofFixedBinary(Bytes bytes, boolean isText) {
+	private static DataEvent ofFixedBinary(Bytes bytes, boolean isText) {
 		int length = bytes.length();
 		if (length == 0) {
 			return isText ? EMPTY_TEXT : EMPTY_BYTES;
@@ -258,8 +270,8 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 			throw new ArithmeticException("value must be non-negative / fit within a signed long");
 		}
 		InitialByte type;
-		AdditionalInfoFormat format = AdditionalInfoFormat.canonicalFromLongValue(value);
-		if (format == AdditionalInfoFormat.IMMEDIATE) {
+		InfoFormat format = InfoFormat.canonicalFromLongValue(value);
+		if (format == InfoFormat.IMMEDIATE) {
 			type = InitialByte.immediate(major, (int) value);
 		} else {
 			type = InitialByte.fromMajorAndFormat(major, format);
@@ -271,15 +283,18 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		return new DataEvent(type, value, null);
 	}
 	
+	/** Construct a data item of a signed long value. This will be represented as a {@link Major#NEGATIVE_INTEGER} if
+	 * the value is negative.
+	 */
 	public static DataEvent ofLong(long value) {
 		if (value >= 0) {
 			return canonicalOfMajorAndLongValue(Major.INTEGER, value);
 		} else {
 			value = ~value;
 			// TODO - fix duplication from above due to the possibility of value being Long.MIN_VALUE
-			AdditionalInfoFormat format = AdditionalInfoFormat.canonicalFromLongValue(value);
+			InfoFormat format = InfoFormat.canonicalFromLongValue(value);
 			InitialByte type;
-			if (format == AdditionalInfoFormat.IMMEDIATE) {
+			if (format == InfoFormat.IMMEDIATE) {
 				type = InitialByte.immediate(Major.NEGATIVE_INTEGER, (int) value);
 			}
 			else {
@@ -293,7 +308,17 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		}
 	}
 	
-	public static DataEvent fromDataInput(DataInput source) throws CborException, IOException, ArithmeticException {
+	/** Construct a data item via a {@link DataInput} source
+	 * 
+	 * @param source source of data
+	 * @return data event, or `null` if the end of stream is encountered.
+	 * 
+	 * @throws CborException if data is not well formed.
+	 * @throws IOException if the underlying DataInput source fails
+	 * @throws ArithmeticException if this value corresponds to a single binary or text chunk larger than
+	 * {@link Long#MAX_VALUE} (approx. 2 GiB)
+	 */
+	public static DataEvent fromDataInput(DataInput source) throws CborNotWellFormedException, IOException, ArithmeticException {
 		InitialByte type;
 		try {
 			type = InitialByte.readDataType(source).orElseThrow(CborNotWellFormedException::new);
@@ -307,7 +332,7 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 			}
 			long rawValue = type.readAdditionalInfo(source);
 			Bytes bytes = null;
-			if (type.getMajorType().isPossiblyFollowedByBinaryData() && !type.isIndefinite()) {
+			if (type.getMajor().isPossiblyFollowedByBinaryData() && !type.isIndefinite()) {
 				if (rawValue < 0 || rawValue > Integer.MAX_VALUE) {
 					throw new ArithmeticException("value");
 				}
@@ -332,7 +357,7 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		if (comparison != 0) {
 			return comparison;
 		}
-		comparison = Long.compareUnsigned(value, value);
+		comparison = Long.compareUnsigned(info, info);
 		if (comparison != 0) {
 			return comparison;
 		}
@@ -357,7 +382,7 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		if (!type.equals(rhs.type)) {
 			return false;
 		}
-		if (value != rhs.value) {
+		if (info != rhs.info) {
 			return false;
 		}
 		return Objects.equals(data, rhs.data);	
@@ -365,268 +390,66 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 	
 	@Override 
 	public int hashCode() {
-		return Objects.hash(type, value, data);
+		return Objects.hash(type, info, data);
 	}
 
 	@Override
-	public InitialByte getDataType() {
+	public InitialByte getInitialByte() {
 		return type;
 	}
 
 	@Override
-	public Type getType() {
-		return Type.fromDataType(type);
+	public long getAdditionalInfo() {
+		return info;
 	}
 
-	@Override
-	public long rawValue() {
-		return value;
-	}
-
-	@Override
-	public int intValue() {
-		switch (type.getMajorType() ) {
-		case INTEGER:
-		case TAG:
-			if (value < 0 || value > Integer.MAX_VALUE)
-				throw new ArithmeticException("value out of bounds of 32-bit signed integer");
-			return (int)value;
-		case NEGATIVE_INTEGER:
-			if (value < 0 || value >= Integer.MAX_VALUE)
-				throw new ArithmeticException("value out of bounds of 32-bit signed integer");
-			return (int)~value;
-		case ETC:
-			AdditionalInfoFormat format = type.getAdditionalInfoFormat();
-			if (format != AdditionalInfoFormat.IMMEDIATE && format != AdditionalInfoFormat.BYTE) {
-				throw new IllegalStateException("value not integer, tag, or simple type");
-			}
-			return (int) value;
-		default:
-			throw new IllegalStateException(new CborIncorrectMajorTypeException(type, Major.INTEGER, Major.NEGATIVE_INTEGER, Major.TAG));	
-		}
-	}
-	
-	@Override
-	public long longValue() {
-		switch (type.getMajorType() ) {
-		case INTEGER:
-		case TAG:
-			if (value < 0)
-				throw new ArithmeticException("value out of bounds of 64-bit signed integer");
-			return value;
-		case NEGATIVE_INTEGER:
-			if (value < 0 || value == Long.MAX_VALUE)
-				throw new ArithmeticException("value out of bounds of 64-bit signed integer");
-			return ~value;
-		case ETC:
-			AdditionalInfoFormat format = type.getAdditionalInfoFormat();
-			if (format != AdditionalInfoFormat.IMMEDIATE && format != AdditionalInfoFormat.BYTE) {
-				throw new IllegalStateException("value not integer, tag, or simple type");
-			}
-			return value;
-		default:
-			throw new IllegalStateException(new CborIncorrectMajorTypeException(type, Major.INTEGER, Major.NEGATIVE_INTEGER, Major.TAG));	
-		}
-	}
-
-	@Override
-	public BigInteger bigIntegerValue() {
-		try {
-			type.assertMajorType(Major.INTEGER, Major.NEGATIVE_INTEGER, Major.TAG, Major.ETC);
-		} catch (CborIncorrectMajorTypeException e) {
-			throw new IllegalStateException(e);
-		}
-		BigInteger result = BigInteger.valueOf(value);
-		if (value < 0)
-			result = result.add(TWO_TO_THE_64TH);
-		if (type.getMajorType() == Major.NEGATIVE_INTEGER) {
-			result = result.negate();
-		}
-		return result;
-	}
-
-	@Override
-	public boolean isIndefiniteLengthContainer() {
-		return type.isIndefinite() && type.getMajorType().isContainer();
-	}
-
-	@Override
-	public int count() throws CborException {
-		switch (type.getMajorType() ) {
-		case BYTE_STRING:
-		case TEXT_STRING:
-		case ARRAY:
-		case MAP:
-			if (isIndefiniteLengthContainer()) {
-				return -1;
-			}
-			if (value < 0 || value > Integer.MAX_VALUE) {
-				throw new ArithmeticException("count out of bounds of 32-bit signed integer");
-			}
-			return (int) value;
-		case TAG:
-			return 1;
-		default:
-			throw new CborIncorrectMajorTypeException(type, Major.BYTE_STRING, Major.TEXT_STRING, Major.ARRAY, Major.MAP, Major.TAG);
-		}
-	}
-
-	@Override
-	public short halfFloatValue() {
-		try {
-			type.assertMajorType(Major.ETC);
-		} catch (CborIncorrectMajorTypeException e) {
-			throw new IllegalStateException(e);
-		}
-		if (type.getAdditionalInfoFormat() != AdditionalInfoFormat.SHORT) {
-			throw new IllegalStateException("Expected 16 bit half float (binary16)");
-		}
-		return (short) value;
-	}
-
-	@Override
-	public float floatValue() {
-		try {
-			type.assertMajorType(Major.ETC);
-		} catch (CborIncorrectMajorTypeException e) {
-			throw new IllegalStateException(e);
-		}
-		if (type.getAdditionalInfoFormat() != AdditionalInfoFormat.INT) {
-			throw new IllegalStateException("Expected 32-bit float (binary32)");
-		}
-		return Float.intBitsToFloat((int) value);
-	}
-
-	@Override
-	public double doubleValue() {
-		try {
-			type.assertMajorType(Major.ETC);
-		} catch (CborIncorrectMajorTypeException e) {
-			throw new IllegalStateException(e);
-		}
-		if (type.getAdditionalInfoFormat() != AdditionalInfoFormat.LONG) {
-			throw new IllegalStateException("Expected 64-bit double (binary64)");
-		}
-		return Double.longBitsToDouble(value);
-	}
-
-	@Override
-	public boolean booleanValue() {
-		if (type == InitialByte.TRUE) {
-			return true;
-		}
-		if (type == InitialByte.FALSE) {
-			return false;
-		}
-		try {
-			type.assertMajorType(Major.ETC);
-		} catch (CborIncorrectMajorTypeException e) {
-			throw new IllegalStateException(e);
-		}
-		throw new IllegalStateException("Expected boolean simple type (true or false)");
-	}
-
-	@Override
-	public boolean isNull() {
-		return type == InitialByte.NULL;
-	}
-
-	@Override
-	public boolean isUndefined() {
-		return type == InitialByte.UNDEFINED;
-	}
 
 	@Override
 	public Bytes bytes() {
-		return data;
+		return data != null ? data : Bytes.empty();
 	}
 
 	@Override
 	public String asTextValue() {
 		if (data == null) {
-			return null;
+			return new String();
 		}
 		return data.asUTF8String();
 	}
-
-	@Override
-	public boolean isBreak() {
-		return type == InitialByte.BREAK;
-	}
-
-	@Override
-	public boolean isLiteralBreak() {
-		return type == InitialByte.BREAK;
-	}
-
-	@Override
-	public CborOptionalValue optional() {
-		return new CborOptionalValueEventWrapper(this);
-	}
 	
-	public static void write(CborEvent event, DataOutput output) throws IOException {
-		InitialByte type = event.getDataType();
-		type.write(output);
-		AdditionalInfoFormat format = type.getAdditionalInfoFormat();
-		long rawValue = event.rawValue();
-		switch (format) {
-		case IMMEDIATE:
-		case INDEFINITE:
-		default:
-			break;
-		case BYTE:
-			output.writeByte((byte) rawValue);
-			break;
-		case SHORT:
-			output.writeShort((short) rawValue);
-			break;
-		case INT:
-			output.writeInt((int) rawValue);
-			break;
-		case LONG:
-			output.writeLong(rawValue);
-		}
-		Bytes bytes = event.bytes();
-		if (bytes != null && !bytes.isEmpty()) {
-			bytes.intoDataOutput(output);
-		}
-	}
-
+	/** Return a data event marking the start of an indefinite length binary string */
 	public static DataEvent startIndefiniteByteArray() {
-		return IMMEDIATES[Major.BYTE_STRING.getHighOrderBits() | AdditionalInfoFormat.INDEFINITE.getLowOrderBits()];
+		return IMMEDIATES[Major.BYTE_STRING.getHighOrderBits() | InfoFormat.INDEFINITE.getLowOrderBits()];
 	}
 
+	/** Return a data event marking the start of an indefinite length text string */
 	static DataEvent startIndefiniteTextArray() {
-		return IMMEDIATES[Major.TEXT_STRING.getHighOrderBits() | AdditionalInfoFormat.INDEFINITE.getLowOrderBits()];
+		return IMMEDIATES[Major.TEXT_STRING.getHighOrderBits() | InfoFormat.INDEFINITE.getLowOrderBits()];
 	}
 
+	/** Return a data event representing this floating point value */
 	static DataEvent ofFloat(float v) {
-		// TODO Auto-generated method stub
-		return null;
+		int value = Float.floatToIntBits(v);
+		return new DataEvent(InitialByte.fromMajorAndFormat(Major.ETC, InfoFormat.INT), value, null);
 	}
 
+	/** Return a data event representing this double floating point value */
 	static DataEvent ofDouble(double v) {
-		// TODO Auto-generated method stub
-		return null;
+		long value = Double.doubleToLongBits(v);
+		return new DataEvent(InitialByte.fromMajorAndFormat(Major.ETC, InfoFormat.LONG), value, null);
 	}
 
+	/** Return a data event representing the half float value */
 	static DataEvent ofHalfFloat(short v) {
-		// TODO Auto-generated method stub
-		return null;
+		return new DataEvent(InitialByte.fromMajorAndFormat(Major.ETC, InfoFormat.SHORT), v, null);
 	}
 
-	static DataEvent ofInfinity() {
-		return INF;
-	}
-	
-	static DataEvent ofNegativeInfinity() {
-		return NEG_INF;
-	}
-	
-	static DataEvent ofNaN() {
-		return NAN;
-	}
-
+	/** Return a data event starting a piece of tagged data.
+	 * The tag is interpreted as a signed long, meaning tags of value over {@link Long#MAX_VALUE} are not supported
+	 * via this method.
+	 * 
+	 * @param tag value as signed long
+	 */
 	static DataEvent ofTag(long tag) {
 		if (tag < 0) {
 			throw new IndexOutOfBoundsException();
@@ -639,6 +462,10 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		return new DataEvent(ib, tag, null);
 	}
 
+	/** Return a data event starting a known-length array (not terminated with a `break` signal)
+	 * 
+	 * @param count number of child data items
+	 */
 	static DataEvent startArray(int count) {
 		if (count < 0 || count > Integer.MAX_VALUE) {
 			throw new IndexOutOfBoundsException();
@@ -651,10 +478,16 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		return new DataEvent(ib, count, null);
 	}
 
+	/** Return a data event starting a unknown-length array (terminated with a `break` signal)
+	 */
 	static DataEvent startIndefiniteArray() {
 		return IMMEDIATES[InitialByte.indefinite(Major.ARRAY).getRepresentation()];
 	}
 
+	/** Return a data event starting a map with a known number of key, value data item pairs (e.g. map not terminated with a `break` signal)
+	 * 
+	 * @param count number of child data item pairs
+	 */
 	static DataEvent startMap(int keyValuePairs) {
 		if (keyValuePairs < 0 || keyValuePairs > Integer.MAX_VALUE) {
 			throw new IndexOutOfBoundsException();
@@ -667,10 +500,11 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		return new DataEvent(ib, keyValuePairs, null);
 	}
 
+	/** Return a data event starting a unknown-length map (terminated with a `break` signal)
+	 */
 	static DataEvent startIndefiniteMap() {
 		return IMMEDIATES[InitialByte.indefinite(Major.MAP).getRepresentation()];
 	}
-
 	
 	// convert bytes to hex for toString()
 	private static String bytesToHex(byte[] in) {
@@ -689,21 +523,21 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 		StringBuilder builder = new StringBuilder("[DataType ");
 		try (ByteArrayOutputStream baos = new ByteArrayOutputStream(5);
 			DataOutputStream dos = new DataOutputStream(baos)) {
-			DataEvent.write(this, dos);
+			write(dos);
 			dos.close();
 			builder.append(bytesToHex(baos.toByteArray()));
 		} catch (IOException e) {
 			builder.append("exception");
 		}
-		Major major = getDataType().getMajorType();
-		AdditionalInfoFormat format = getDataType().getAdditionalInfoFormat();
+		Major major = getInitialByte().getMajor();
+		InfoFormat format = getInitialByte().getAdditionalInfoFormat();
 		builder.append(" ").append(major).append(":").append(format).append(" ");
 		switch (major) {
 		case INTEGER:
-			builder.append(value);
+			builder.append(info);
 			break;
 		case NEGATIVE_INTEGER:
-			builder.append(~value);
+			builder.append(~info);
 			break;
 		case BYTE_STRING:
 		case TEXT_STRING:
@@ -712,13 +546,13 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 			builder.append("...");
 			break;
 		case TAG:
-			builder.append("tag#").append(value);
+			builder.append("tag#").append(info);
 			break;
 		case ETC:
 			switch (format) {
 			case IMMEDIATE:
 			case BYTE:
-				switch((int)value) {
+				switch((int)info) {
 				case 20:
 					builder.append("FALSE");
 					break;
@@ -732,7 +566,7 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 					builder.append("UNDEFINED");
 					break;
 				default:
-					builder.append("simple(").append(value).append(")");
+					builder.append("simple(").append(info).append(")");
 					break;
 				}
 				break;
@@ -740,14 +574,14 @@ public final class DataEvent implements CborEvent, Comparable<DataEvent>, Serial
 				builder.append("BREAK");
 				break;
 			case SHORT:
-				short half = (short) value;
+				short half = (short) info;
 				builder.append("binary16(").append(String.format("%4x", half)).append(")");
 				break;
 			case INT:
-				builder.append("float ").append(Float.intBitsToFloat((int)value));
+				builder.append("float ").append(Float.intBitsToFloat((int)info));
 				break;
 			case LONG:
-				builder.append("double ").append(Double.longBitsToDouble(value));
+				builder.append("double ").append(Double.longBitsToDouble(info));
 				break;				
 			}
 		}

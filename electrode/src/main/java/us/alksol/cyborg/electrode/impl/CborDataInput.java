@@ -1,25 +1,40 @@
 package us.alksol.cyborg.electrode.impl;
 
 import java.io.DataInput;
-import java.util.Iterator;
+import java.io.DataInputStream;
+import java.io.IOException;
 import java.util.NoSuchElementException;
 
 import us.alksol.cyborg.electrode.CborEvent;
 import us.alksol.cyborg.electrode.CborParser;
 import us.alksol.cyborg.electrode.DataEvent;
 
-public class CborInput implements CborParser {
+/** Adapter of a data input source to implement CborParser */
+public class CborDataInput implements CborParser {
 	
 	private DataInput source;
 	private CborEvent next;
 	
-	public CborInput(DataInput input) {
+	public CborDataInput(DataInputStream input) {
 		source = input;
 		next = null;
 	}
+
+	public CborDataInput(DataInput input) {
+		source = input;
+		next = null;
+	}
+
 	
 	@Override
 	public boolean hasNext() {
+		if (source == null) {
+			return false;
+		}
+		if (next != null) {
+			return true;
+		}
+
 		try {
 			if (next == null) {
 				next = DataEvent.fromDataInput(source);
@@ -33,6 +48,9 @@ public class CborInput implements CborParser {
 
 	@Override
 	public CborEvent next() {
+		if (!hasNext()) {
+			throw new NoSuchElementException();
+		}
 		CborEvent event = next;
 		if (event == null) {
 			throw new NoSuchElementException();
@@ -42,6 +60,10 @@ public class CborInput implements CborParser {
 	}
 
 	@Override
-	public void close() throws Exception {
+	public CborEvent peek() throws IOException, NoSuchElementException {
+		if (!hasNext()) {
+			throw new NoSuchElementException();
+		}
+		return next;
 	}
 }

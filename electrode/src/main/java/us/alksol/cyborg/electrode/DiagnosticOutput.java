@@ -6,92 +6,115 @@ import java.io.StringWriter;
 import java.io.Writer;
 
 import us.alksol.bytestring.Bytes;
+import us.alksol.cyborg.electrode.InitialByte.InfoFormat;
+import us.alksol.cyborg.electrode.InitialByte.Major;
 
-public class DiagnosticOutput {
+public class DiagnosticOutput implements CborGenerator {
 	Writer output;
-	CborParser input;
-	private CborEvent event;
-	DiagnosticOutput(CborParser input, Writer debugOutput) {
-		this.input = input;
+	StateGenerator stateGenerator;
+	DiagnosticOutput(Writer debugOutput) {
 		this.output = debugOutput;
+		stateGenerator = new StateGenerator(
+				new DefaultDataItemGenerator(
+						new FailingGenerator()));
 	}
 	
-	public static String bytesToHex(byte[] in) {
+	@Override
+	public DiagnosticOutput next(CborEvent event) throws IOException {
+		stateGenerator.next(event);
+		return this;
+	}
+	private static String bytesToHex(byte[] in) {
 	    final StringBuilder builder = new StringBuilder();
 	    for(byte b : in) {
 	        builder.append(String.format("%02x", b));
 	    }
 	    return builder.toString();
 	}
-	
-	public void process() throws IOException {
-		if (!input.hasNext()) {
-			throw new RuntimeException("Out of data - non-well-formed CBOR?");
+	private class FailingGenerator implements CborGenerator {
+		public FailingGenerator next(CborEvent event) {
+			throw new IllegalStateException("no more items expected in well-formed CBOR");
 		}
-		event = input.next();
-		CborEvent.Type type = event.getType();
-		switch (type) {
-		case INTEGER:
-			output.write(Long.toUnsignedString(event.rawValue()));
-			break;
-		case NEGATIVE_INTEGER:
-			output.write("-");
-			output.write(Long.toUnsignedString(event.rawValue() + 1));
-			break;
-		case BINARY_CHUNK:
-		case START_BINARY_CHUNKS:
-			writeByteString();
-			break;
-		case TEXT_CHUNK:
-		case START_TEXT_CHUNKS:
-			writeTextString();
-			break;
-		case START_ARRAY_ELEMENTS:
-			if (event.isIndefiniteLengthContainer()) {
-				readIndefiniteArray();
-			} else {
-				readArray((int)event.rawValue());
+	}
+	
+	private class DefaultDataItemGenerator implements CborGenerator {
+		CborGenerator parent;
+
+		public DefaultDataItemGenerator(CborGenerator parent) {
+			this.parent = parent;
+		}
+		public DefaultDataItemGenerator next(CborEvent event) throws IOException {
+			InitialByte ib = event.getInitialByte();
+			Major major = ib.getMajor();
+			InfoFormat format = ib.getAdditionalInfoFormat();
+			
+			switch(major) {
+			case INTEGER:
+				output.write(Long.toUnsignedString(event.getAdditionalInfo()));
+				break;
+			case NEGATIVE_INTEGER:
+				output.write("-");
+				output.write(Long.toUnsignedString(event.getAdditionalInfo() + 1));
+				break;
+			case ETC: {
+				
 			}
-			break;
-		case START_MAP_ENTRIES:
-			if (event.isIndefiniteLengthContainer()) {
-				readIndefiniteMap();
-			} else {
-				readMap((int)event.rawValue());
+			case TRUE:
+				output.write("true");
+				break;
+			case FALSE:
+				output.write("false");
+				break;
+			case NULL:
+				output.write("null");
+				break;
+			case UNDEFINED:
+				output.write("undefined");
+				break;
+			case OTHER_SIMPLE:
+				output.write("simple(" + event.getAdditionalInfo() + ")");
+				break;
+			case FLOAT:
+				output.write(Float.toString(event.additionalInfoAsFloat()));
+				break;
+			case DOUBLE:
+				output.write(Double.toString(event.additionalInfoAsDouble()));
+				break;
+			case HALF_FLOAT:
+				output.write("<half float>");
+				break;
+			case START_BINARY_CHUNKS:
+			case START_TEXT_CHUNKS:
+			case START_ARRAY_ELEMENTS:
+				if (event.isStartOfIndefiniteLengthContainer()) {
+					readIndefiniteArray();
+				} else {
+					readArray((int)event.getAdditionalInfo());
+				}
+				break;
+			case START_MAP_ENTRIES:
+				if (event.isStartOfIndefiniteLengthContainer()) {
+					readIndefiniteMap();
+				} else {
+					readMap((int)event.getAdditionalInfo());
+				}
+				break;
+			case BYTE_STRING:
+			case TEXT_STRING:
+			case ARRAY:
+			case MAP:
+			case TAG:
+				output.write(Long.toUnsignedString(event.getAdditionalInfo()));
+				output.write("(");
+				stateGenerator.setGenerator(new DefaultDataItemGenerator(this));
+				return this;
+				break;
+				output.write(")");
+				break;
+			default:
+				throw new IllegalStateException(event.toString());
 			}
-			break;
-		case TAG:
-			output.write(Long.toUnsignedString(event.rawValue()));
-			output.write("(");
-			process();
-			output.write(")");
-			break;
-		case TRUE:
-			output.write("true");
-			break;
-		case FALSE:
-			output.write("false");
-			break;
-		case NULL:
-			output.write("null");
-			break;
-		case UNDEFINED:
-			output.write("undefined");
-			break;
-		case OTHER_SIMPLE:
-			output.write("simple(" + event.rawValue() + ")");
-			break;
-		case FLOAT:
-			output.write(Float.toString(event.floatValue()));
-			break;
-		case DOUBLE:
-			output.write(Double.toString(event.doubleValue()));
-			break;
-		case HALF_FLOAT:
-			output.write("<half float>");
-			break;
-		default:
-			throw new IllegalStateException(event.toString());
+			return this;
 		}
 	}
 
@@ -132,7 +155,7 @@ public class DiagnosticOutput {
 	}
 	
 	private void writeTextString() throws IOException {
-		if (event.getDataType().isIndefinite()) {
+		if (event.getInitialByte().isIndefinite()) {
 			StringWriter writer = new StringWriter();
 			output.write("(_ ");
 			boolean breakEncountered = false;
@@ -159,7 +182,7 @@ public class DiagnosticOutput {
 	}
 
 	private void writeByteString() throws IOException {
-		if (event.getDataType().isIndefinite()) {
+		if (event.getInitialByte().isIndefinite()) {
 			StringWriter writer = new StringWriter();
 			output.write("(_ ");
 			boolean breakEncountered = false;

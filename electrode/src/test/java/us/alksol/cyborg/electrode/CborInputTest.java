@@ -12,7 +12,7 @@ import java.io.Writer;
 
 import org.junit.Test;
 
-import us.alksol.cyborg.electrode.impl.CborInput;
+import us.alksol.cyborg.electrode.impl.CborDataInput;
 
 public class CborInputTest {
 
@@ -21,7 +21,7 @@ public class CborInputTest {
 		System.out.println(CborInputTest.class.getResource("."));
 		InputStream stream = CborInputTest.class.getResourceAsStream("/jscn_interop_test/test1.cbor");
 		assertThat(stream, is(notNullValue()));
-		CborParser input = new CborInput(new DataInputStream(stream));
+		CborParser input = new CborDataInput(new DataInputStream(stream));
 		Writer writer = new OutputStreamWriter(System.out);
 		DiagnosticOutput output = new DiagnosticOutput(input, writer);
 		output.process();
