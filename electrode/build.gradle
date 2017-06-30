@@ -18,7 +18,7 @@ repositories {
 dependencies {
     // Use JUnit test framework
     // compile "io.netty:netty-buffer:4.1.9.Final"
-    compile "us.alksol:bytes:0.1-SNAPSHOT"
+    compile "com.github.dwaite:bytes:1.0.0"
     compile "javax.validation:validation-api:1.1.0.Final"
     testImplementation 'junit:junit:4.12'
 }
